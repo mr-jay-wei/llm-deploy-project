@@ -1,0 +1,9 @@
+# .dockerignore
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.env
+vllm.log

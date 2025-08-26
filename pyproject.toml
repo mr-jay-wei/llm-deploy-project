@@ -1,0 +1,24 @@
+[project]
+name = "llm-deploy-project"
+version = "0.1.0"
+description = "A project to deploy LLM with vLLM and FastAPI"
+authors = [{ name = "Jay Wei", email = "xiaofeng.0209@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11, <3.12"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "openai",
+    "aiohttp",
+    "pyngrok", # 我们需要它在Colab里创建公网隧道
+]
+
+[project.optional-dependencies]
+# 这里是只有在GPU环境（比如Colab）下才需要安装的重度依赖
+gpu = [
+    "vllm",
+]
+
+[tool.uv]
