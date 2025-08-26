@@ -1,0 +1,87 @@
+# .github/workflows/deploy.yml (Upgraded Version)
+
+name: CI/CD for VLLM Service
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'tests/**'
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/qwen-vllm-service
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    # 【核心升级 1】定义任务的输出
+    outputs:
+      image_tag: ${{ steps.get_sha.outputs.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 【新增步骤】专门获取短SHA哈希值，方便阅读
+      - name: Get short SHA
+        id: get_sha
+        run: echo "sha=$(echo ${GITHUB_SHA::7})" >> $GITHUB_OUTPUT
+        
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            # 使用我们刚刚生成的短SHA作为标签
+            ${{ env.IMAGE_NAME }}:${{ steps.get_sha.outputs.sha }}
+
+  deploy:
+    name: Deploy to Server
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 【核心升级 2】定义一个变量来存储从上一个任务接收到的精确版本号
+            IMAGE_TAG=${{ needs.build-and-push.outputs.image_tag }}
+            
+            # 使用令牌登录Docker Hub
+            echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+
+            # 【核心升级 3】拉取精确版本的镜像，而不是'latest'
+            docker pull ${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+
+            # 停止并删除旧容器
+            docker stop qwen-server || true
+            docker rm qwen-server || true
+
+            # 【核心升级 4】使用精确版本的镜像启动新容器
+            docker run -d \
+              --gpus all \
+              -p 8000:8000 \
+              --name qwen-server \
+              --restart always \
+              ${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
+              --api-key ${{ secrets.VLLM_API_KEY }}
+
+            # 清理旧镜像
+            docker image prune -af
